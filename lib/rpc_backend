@@ -153,12 +153,12 @@ function install_rpc_backend {
         if [ -z "$QPID_USERNAME" ]; then
             # no QPID user configured, so disable authentication
             sudo sed -i.bak '/^auth=yes/d' $qpid_conf_file
-            sudo echo "auth=no" >> $qpid_conf_file
+            echo "auth=no" | sudo tee --append $qpid_conf_file
         else
             # Configure qpidd to use PLAIN authentication, and add
             # $QPID_USERNAME/$QPID_PASSWORD to qpid's SASL database:
             sudo sed -i.bak '/^auth=no/d' $qpid_conf_file
-            sudo echo "auth=yes" >> $qpid_conf_file
+            echo "auth=yes" | sudo tee --append $qpid_conf_file
             if is_ubuntu; then
                 install_package sasl2-bin
             elif is_fedora; then
