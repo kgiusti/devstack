@@ -132,23 +132,48 @@ function install_rpc_backend {
         # Install rabbitmq-server
         install_package rabbitmq-server
     elif is_service_enabled qpid; then
-        local qpid_conf_file=/etc/qpid/qpidd.conf
         if is_fedora; then
             install_package qpid-cpp-server
-            if [[ $DISTRO =~ (rhel6) ]]; then
-                qpid_conf_file=/etc/qpidd.conf
-                # RHEL6 leaves "auth=yes" in /etc/qpidd.conf, it needs to
-                # be no or you get GSS authentication errors as it
-                # attempts to default to this.
-                sudo sed -i.bak 's/^auth=yes$/auth=no/' $qpid_conf_file
-            fi
         elif is_ubuntu; then
             install_package qpidd
-            sudo sed -i '/PLAIN/!s/mech_list: /mech_list: PLAIN /' /etc/sasl2/qpidd.conf
-            sudo chmod o+r /etc/qpid/qpidd.sasldb
         else
             exit_distro_not_supported "qpid installation"
         fi
+
+        # configure qpidd
+        local qpid_conf_file=/etc/qpid/qpidd.conf
+        if [ ! -e $qpid_conf_file ]; then
+            # older qpidd used a non-standard path:
+            qpid_conf_file=/etc/qpidd.conf
+        fi
+        if [ ! -e $qpid_conf_file ]; then
+            exit_distro_not_supported "qpidd config file missing"
+        fi
+
+        if [ -z "$QPID_USERNAME" ]; then
+            # no QPID user configured, so disable authentication
+            sudo set -i.bak '/^auth=yes/d' $qpid_conf_file
+            sudo echo "auth=no" >> $qpid_conf_file
+        else
+            # Configure qpidd to use PLAIN authentication, and add
+            # $QPID_USERNAME/$QPID_PASSWORD to qpid's SASL database:
+            sudo set -i.bak '/^auth=no/d' $qpid_conf_file
+            sudo echo "auth=yes" >> $qpid_conf_file
+            if is_ubuntu; then
+                install_package sasl2-bin
+            elif is_fedora; then
+                install_package cyrus-sasl-lib
+            fi
+            if [ -z "$QPID_PASSWORD" ]; then
+                read_password QPID_PASSWORD "ENTER A PASSWORD FOR QPID USER $QPID_USERNAME"
+            fi
+            local sasl_conf_file=/etc/sasl2/qpidd.conf
+            sudo sed -i.bak '/PLAIN/!s/mech_list: /mech_list: PLAIN /' $sasl_conf_file
+            local sasl_db=`sudo grep sasldb_path $sasl_conf_file | cut -f 2 -d ":" | tr -d [:blank:]`
+            sudo saslpasswd2 -d -f $sasl_db -u QPID $QPID_USERNAME
+            echo $QPID_PASSWORD | sudo saslpasswd2 -c -p -f $sasl_db -u QPID $QPID_USERNAME
+        fi
+
         # If AMQP 1.0 is specified, ensure that the version of the
         # broker can support AMQP 1.0 and configure the queue and
         # topic address patterns used by oslo.messaging.
@@ -240,10 +265,9 @@ function iniset_rpc_backend {
             iniset $file $section rpc_backend ${package}.openstack.common.rpc.impl_qpid
         fi
         iniset $file $section qpid_hostname ${QPID_HOST:-$SERVICE_HOST}
-        if is_ubuntu; then
-            QPID_PASSWORD=`sudo strings /etc/qpid/qpidd.sasldb | grep -B1 admin | head -1`
+        if [ -n "$QPID_USERNAME" ]; then
+            iniset $file $section qpid_username $QPID_USERNAME
             iniset $file $section qpid_password $QPID_PASSWORD
-            iniset $file $section qpid_username admin
         fi
     elif is_service_enabled rabbit || { [ -n "$RABBIT_HOST" ] && [ -n "$RABBIT_PASSWORD" ]; }; then
         iniset $file $section rpc_backend ${package}.openstack.common.rpc.impl_kombu
