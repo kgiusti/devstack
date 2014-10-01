@@ -249,32 +249,43 @@ function _configure_qpid {
     else
         exit_distro_not_supported "qpidd.conf file not found!"
     fi
-    # if an ACL file exists in the old location, use that
-    local qpid_acl_file=/etc/qpid/qpidd.acl
-    if [ -e /etc/qpidd.acl ]; then
-        qpid_acl_file=/etc/qpidd.acl
-    fi
 
+    # force the ACL file to a known location
+    local qpid_acl_file=/etc/qpid/qpidd.acl
+    if [ ! -e $qpid_acl_file ]; then
+        sudo mkdir -p -m 755 `dirname $qpid_acl_file`
+        sudo touch $qpid_acl_file
+        sudo chmod o+r $qpid_acl_file
+    fi
+    sudo sed -i.bak '/^acl-file=/d' $qpid_conf_file
+    echo "acl-file=$qpid_acl_file" | sudo tee --append $qpid_conf_file
+
+    sudo sed -i '/^auth=/d' $qpid_conf_file
     if [ -z "$QPID_USERNAME" ]; then
         # no QPID user configured, so disable authentication
         # and access control
-        sudo sed -i.bak '/^auth=/d' $qpid_conf_file
         echo "auth=no" | sudo tee --append $qpid_conf_file
         cat <<EOF | sudo tee $qpid_acl_file
 acl allow all all
 EOF
     else
         # Configure qpidd to use PLAIN authentication, and add
-        # $QPID_USERNAME/$QPID_PASSWORD to qpid's SASL database:
-        sudo sed -i.bak '/^auth=/d' $qpid_conf_file
+        # QPID_USERNAME to the ACL:
         echo "auth=yes" | sudo tee --append $qpid_conf_file
+        if [ -z "$QPID_PASSWORD" ]; then
+            read_password QPID_PASSWORD "ENTER A PASSWORD FOR QPID USER $QPID_USERNAME"
+        fi
+        # Create ACL to allow $QPID_USERNAME full access
+        cat <<EOF | sudo tee $qpid_acl_file
+group admin ${QPID_USERNAME}@QPID
+acl allow admin all
+acl deny all all
+EOF
+        # Add user to SASL database
         if is_ubuntu; then
             install_package sasl2-bin
         elif is_fedora; then
             install_package cyrus-sasl-lib
-        fi
-        if [ -z "$QPID_PASSWORD" ]; then
-            read_password QPID_PASSWORD "ENTER A PASSWORD FOR QPID USER $QPID_USERNAME"
         fi
         local sasl_conf_file=/etc/sasl2/qpidd.conf
         sudo sed -i.bak '/PLAIN/!s/mech_list: /mech_list: PLAIN /' $sasl_conf_file
@@ -284,13 +295,6 @@ EOF
         fi
         echo $QPID_PASSWORD | sudo saslpasswd2 -c -p -f $sasl_db -u QPID $QPID_USERNAME
         sudo chmod o+r $sasl_db
-
-        # Create ACL to allow $QPID_USERNAME full access
-        cat <<EOF | sudo tee $qpid_acl_file
-group admin ${QPID_USERNAME}@QPID
-acl allow admin all
-acl deny all all
-EOF
     fi
 
     # If AMQP 1.0 is specified, ensure that the version of the
