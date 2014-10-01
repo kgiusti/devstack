@@ -280,7 +280,7 @@ EOF
         sudo sed -i.bak '/PLAIN/!s/mech_list: /mech_list: PLAIN /' $sasl_conf_file
         local sasl_db=`sudo grep sasldb_path $sasl_conf_file | cut -f 2 -d ":" | tr -d [:blank:]`
         if [ ! -e $sasl_db ]; then
-            sudo mkdir -p -m 755 `basename $sasl_db`
+            sudo mkdir -p -m 755 `dirname $sasl_db`
         fi
         echo $QPID_PASSWORD | sudo saslpasswd2 -c -p -f $sasl_db -u QPID $QPID_USERNAME
         sudo chmod o+r $sasl_db
