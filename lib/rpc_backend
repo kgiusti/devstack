@@ -258,7 +258,7 @@ function _configure_qpid {
     if [ -z "$QPID_USERNAME" ]; then
         # no QPID user configured, so disable authentication
         # and access control
-        sudo sed -i.bak '/^auth=yes/d' $qpid_conf_file
+        sudo sed -i.bak '/^auth=/d' $qpid_conf_file
         echo "auth=no" | sudo tee --append $qpid_conf_file
         cat <<EOF | sudo tee $qpid_acl_file
 acl allow all all
@@ -266,7 +266,7 @@ EOF
     else
         # Configure qpidd to use PLAIN authentication, and add
         # $QPID_USERNAME/$QPID_PASSWORD to qpid's SASL database:
-        sudo sed -i.bak '/^auth=no/d' $qpid_conf_file
+        sudo sed -i.bak '/^auth=/d' $qpid_conf_file
         echo "auth=yes" | sudo tee --append $qpid_conf_file
         if is_ubuntu; then
             install_package sasl2-bin
